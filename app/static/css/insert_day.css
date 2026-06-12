@@ -1,0 +1,9 @@
+/* 1. Ensure that if the hidden attribute is present, it is 100% invisible */
+#preview[hidden] {
+    display: none !important;
+}
+
+/* 2. Ensure that when hidden is REMOVED, it gets its structural flex layout back */
+#preview:not([hidden]) {
+    display: flex !important;
+}

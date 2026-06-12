@@ -1,0 +1,74 @@
+
+{% extends "base.html" %}
+
+{% block title %}Requests{% endblock %}
+
+{% block scripts %} 
+<script type="module" src="/static/js/requests.js"></script>
+{% endblock %}
+
+{% block css %} 
+<link rel="stylesheet" href="/static/css/requests.css">
+{% endblock %}
+
+{% block app %}
+
+<div class="container my-5" style="max-width: 650px;">
+    <div class="card shadow-sm p-4 bg-white">
+        
+        <nav class="nav nav-underline justify-content-center mb-4 border-bottom pb-2">
+            <a id="requests-to-me-btn" class="nav-link fw-bold px-3 text-primary" style="cursor: pointer;">me</a>
+            <span class="text-muted align-self-center mx-1">/</span>
+            <a id="my-requests-btn" class="nav-link fw-bold px-3 text-secondary" style="cursor: pointer;">my</a>
+        </nav>
+        
+        <div id="requests-to-me" class="d-grid gap-2">
+            {% for request in me %}
+                <div id="request-{{ request._id }}" class="request-block d-flex align-items-center justify-content-between p-3 border rounded bg-light">
+                    <div class="d-flex align-items-center">
+                        <figure class="mb-0 me-3">
+                            {% if request.from_user.photo %}
+                            <img src="{{ request.from_user.photo }}" class="rounded-circle object-fit-cover border" style="width: 45px; height: 45px;">
+                            {% else %}
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png" class="rounded-circle object-fit-cover border" style="width: 45px; height: 45px;">
+                            {% endif %}
+                        </figure>
+                        <span class="fw-semibold text-dark">{{ request.from_user.username }}</span>
+                    </div>
+                    
+                    <div class="d-flex align-items-center gap-2">
+                        {% if request.status != "waiting" %}
+                        <span class="badge bg-secondary-subtle text-secondary px-3 py-2 border rounded-pill text-capitalize">{{ request.status }}</span>
+                        {% else %}
+                        <button id="approve-request-btn-{{ request._id }}" class="btn btn-primary btn-sm px-3 approve-request-btn">Approve</button>
+                        <button id="decline-request-btn-{{ request._id }}" class="btn btn-outline-secondary btn-sm px-3 decline-request-btn">Decline</button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        
+        <div id="my-requests" class="d-grid gap-2" hidden>
+            {% for request in my %}
+                <div id="request-{{ request._id }}" class="request-block d-flex align-items-center justify-content-between p-3 border rounded bg-white shadow-sm">
+                    <div class="d-flex flex-column">
+                        <span class="text-dark fw-medium small mb-1">{{ request.to.email }}</span>
+                        <span class="text-muted" style="font-size: 0.75rem;">Sent: {{ request.timestamp.strftime("%d.%m.%Y %H:%M") }}</span>
+                    </div>
+                    <div>
+                        {% if request.status == "waiting" %}
+                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-3 py-2 rounded-pill text-capitalize">{{ request.status }}</span>
+                        {% elif request.status == "approved" %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill text-capitalize">{{ request.status }}</span>
+                        {% else %}
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 rounded-pill text-capitalize">{{ request.status }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        
+    </div>
+</div>
+
+{% endblock %}

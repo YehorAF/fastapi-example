@@ -1,0 +1,9 @@
+.env
+__pycache__
+bin
+lib
+lib64
+include
+celerybeat-schedule
+/app/public/days/*
+/app/public/users/*

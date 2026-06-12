@@ -1,0 +1,14 @@
+aiofiles
+fastapi
+uvicorn
+hypercorn
+pymongo
+redis
+python-dotenv
+PyJWT
+pyOpenSSL
+jinja2
+cryptography
+pydantic[email]
+python-multipart
+celery

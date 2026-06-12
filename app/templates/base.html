@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>{% block title %}{% endblock %}</title>
+    <script type="module" src="/static/js/base.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
+        crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    {% block scripts %}{% endblock %}
+    {% block css %}{% endblock %}
+</head>
+
+<body>
+    <nav id="app-nav" class="nav">
+        <li class="nav-item">
+            <a class="nav-link active" href="/">HowAreYouApp.logo</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link active" href="/show_days">Freind days</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link active" href="/insert_day">Describe my day</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link active" href="/show_requests">Requests</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link active" href="/show_user/me">Me</a>
+        </li>
+    </nav>
+    <div id="log-message"
+        class="position-fixed top-0 start-50 translate-middle-x mt-4 p-3 shadow-lg rounded bg-white border border-light custom-toast-alert"
+        hidden style="z-index: 2000; min-width: 320px; max-width: 500px;">
+        <div id="alert-message" class="alert alert-dismissible mb-2 text-center small fw-medium"></div>
+
+        <button id="close-alert" class="btn btn-sm btn-outline-secondary d-block mx-auto w-100">Close</button>
+    </div>
+    <main id="app-main">
+        {% block app %}{% endblock %}
+    </main>
+    <footer id="app-footer"></footer>
+</body>
+
+</html>

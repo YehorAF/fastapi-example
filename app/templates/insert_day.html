@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Insert day{% endblock %}
+
+{% block scripts %} 
+<script type="module" src="/static/js/insert_day.js"></script>
+{% endblock %}
+
+{% block css %} 
+<link rel="stylesheet" href="/static/css/insert_day.css">
+{% endblock %}
+
+{% block app %}
+
+<div class="container my-5" style="max-width: 900px;">
+    <div class="row g-4">
+        
+        <div class="col-md-5">
+            <div class="card p-4 shadow-sm bg-white border-light h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <h3 class="h5 mb-3 fw-bold text-dark">Log a New Day</h3>
+                    
+                    <div class="mb-3">
+                        <label class="form-label small text-muted fw-semibold">How was your day?</label>
+                        <select id="reaction" class="form-select text-capitalize">
+                            {% for reaction in ["awful", "bad", "normal", "good", "awesome"] %}
+                            <option value="{{ reaction }}">{{ reaction }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label small text-muted fw-semibold">Notes / Description</label>
+                        <textarea id="description" class="form-control" rows="5" placeholder="Share what happened today..."></textarea>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label small text-muted fw-semibold">Choose a Photo</label>
+                        <input id="photo" class="form-control" type="file" accept="image/png, image/jpg, image/jpeg">
+                    </div>
+                </div>
+
+                <div class="btn-container d-flex gap-2 pt-3 border-top">
+                    <button class="btn btn-outline-secondary w-50" type="reset">Reset</button>
+                    <button id="check-and-load" class="btn btn-primary w-50">Check preview</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div id="preview" class="day-container card shadow-sm border-0 h-100 overflow-hidden bg-light d-flex flex-column justify-content-between" hidden>
+                <div>
+                    <figure class="mb-0 text-center bg-dark d-flex align-items-center justify-content-center" style="min-height: 250px; max-height: 380px; overflow: hidden;">
+                        <img id="preview-photo" class="img-fluid w-100 object-fit-cover" style="max-height: 380px;" src="https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg">
+                    </figure>
+                    
+                    <div class="card-body p-4 bg-white">
+                        <span class="d-block mb-2 fw-medium text-dark">
+                            How was it going? 
+                            <a id="preview-reaction" class="reaction badge bg-info text-dark text-decoration-none ms-1 text-capitalize"></a>
+                        </span>
+                        <p id="preview-description" class="card-text text-secondary text-break" style="white-space: pre-wrap;"></p>
+                    </div>
+                </div>
+
+                <div class="p-3 bg-white border-top text-end">
+                    <button id="add-day" class="btn btn-success px-4" disabled>Add Entry</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% endblock %}

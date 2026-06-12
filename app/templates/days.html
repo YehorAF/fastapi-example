@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Days{% endblock %}
+
+{% block scripts %} 
+<script type="module" src="/static/js/days.js"></script>
+{% endblock %}
+
+{% block css %} 
+<link rel="stylesheet" href="/static/css/days.css">
+{% endblock %}
+
+
+{% block app %}
+
+<div class="container my-5" style="max-width: 800px;">
+
+    <nav class="fnav-filter-btns card p-3 shadow-sm bg-white mb-4 border-light position-sticky top-0" style="z-index: 1020;">
+        <header class="h6 fw-bold text-dark border-bottom pb-2 mb-3">Filters</header>
+        <div class="row g-3 align-items-center">
+            <div class="col-sm-6 col-md-4">
+                <span class="d-flex align-items-center gap-2 small text-muted">
+                    from <input id="min-timestamp" class="form-control form-control-sm" type="date">
+                </span>
+            </div>
+            <div class="col-sm-6 col-md-4">
+                <span class="d-flex align-items-center gap-2 small text-muted">
+                    to <input id="max-timestamp" class="form-control form-control-sm" type="date">
+                </span>
+            </div>
+            <div class="col-sm-6 col-md-4">
+                <span class="d-flex align-items-center gap-2 small text-muted">
+                    limit <input id="limit" class="form-control form-control-sm" min="1" max="20" value="20" placeholder="Limit">
+                </span>
+            </div>
+            
+            <div class="col-12 border-top pt-2 mt-2">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    {% for reaction in ["awful", "bad", "normal", "good", "awesome"] %}
+                    <span class="form-check form-check-inline mb-0 align-items-center d-flex gap-1 small text-capitalize fw-medium">
+                        <input class="reaction-inp form-check-input" id="reaction-{{ reaction }}" value="{{ reaction }}" type="checkbox" checked>
+                        {{ reaction }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <div class="col-12 text-end border-top pt-2">
+                <button id="use-filters" class="btn btn-primary btn-sm px-4">Use</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="d-grid gap-4">
+        {% for day in days%}
+
+        <div id="day-{{ day._id }}" class="day-container card shadow-sm overflow-hidden border-light bg-white">
+            <div class="info-container card-header bg-white d-flex align-items-center justify-content-between py-3 border-0">
+                <div class="user-container d-flex align-items-center">
+                    <figure class="mb-0 me-2">
+                        {% if day.user.photo %}
+                        <img src="{{ day.user.photo }}" class="rounded-circle object-fit-cover border" style="width: 38px; height: 38px;">
+                        {% else %}
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png" class="rounded-circle border" style="width: 38px; height: 38px;">
+                        {% endif %}
+                    </figure>
+                    <a href="views/users/{{ day.user._id }}" class="text-decoration-none">
+                        <header class="fw-bold text-dark mb-0">{{ day.user.username }}</header>
+                    </a>
+                </div>
+                <div class="d-flex flex-column align-items-end small text-muted" style="font-size: 0.75rem;">
+                    <span class="timestamp">Created: {{ day.created }}</span>
+                    {% if day.last_updated %}
+                    <span class="timestamp">Last updated: {{ day.last_updated }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <figure class="mb-0 border-vertical text-center bg-light">
+                {% if day.photo %}
+                <img src="/{{ day.photo }}" class="img-fluid w-100 object-fit-cover" style="max-height: 450px;">
+                {% endif %}
+            </figure>
+            
+            <div class="card-body p-4">
+                <span class="d-block mb-2 fw-medium text-dark">
+                    How was it going? 
+                    <a class="reaction badge bg-info text-dark text-decoration-none ms-1 text-capitalize">{{ day.reaction }}</a>
+                </span>
+                <p class="card-text text-secondary mb-0" style="white-space: pre-wrap;">{{ day.description }}</p>
+            </div>
+        </div>
+
+        {% endfor %}
+    </div>
+
+    <nav class="nav-page-btns d-flex justify-content-center gap-3 mt-5 border-top pt-4">
+        <a id="previous-days" class="btn btn-outline-secondary px-4 btn-sm fw-semibold text-decoration-none {% if not is_prev %}disabled{% endif %}" style="cursor: pointer;" {% if not is_prev %}aria-disabled="true"{% endif %}>previous</a>
+        <a id="next-days" class="btn btn-outline-primary px-4 btn-sm fw-semibold text-decoration-none {% if not is_next %}disabled{% endif %}" style="cursor: pointer;" {% if not is_next %}aria-disabled="true"{% endif %}>next</a>
+    </nav>
+
+</div>
+
+{% endblock %}

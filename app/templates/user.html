@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}User{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/static/js/user.js"></script>
+{% endblock %}
+
+{% block css %}
+<link rel="stylesheet" href="/static/css/user.css">
+{% endblock %}
+
+{% block app %}
+
+<div class="container my-5">
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="card p-4 text-center shadow-sm position-sticky" style="top: 2rem;">
+                <figure class="mb-3">
+                    {% if photo %}
+                    <img src="/{{ photo }}" class="img-thumbnail rounded-circle object-fit-cover mb-2" style="width: 150px; height: 150px;">
+                    {% else %}
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png" class="img-thumbnail rounded-circle mb-2" style="width: 150px; height: 150px;">
+                    {% endif %}
+                    <figcaption class="h4 mt-2"> {{ username }}</figcaption>
+                    <span class="text-muted d-block mb-3"> {{ email }}</span>
+                    <div class="d-grid gap-2">
+                        <button id="change-info-btn" class="btn btn-primary">Upload photo</button>
+                        <button id="open-req-form-btn" class="btn btn-secondary">Send request</button>
+                        <button id="quit-btn" class="btn btn-outline-secondary">Quit</button>
+                        <button id="open-delete-form-btn" class="btn btn-danger btn-sm mt-2">Delete account</button>
+                    </div>
+                </figure>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            {% if is_me %}
+            <div id="friend-list-container" class="card p-4 shadow-sm mb-4">
+                <h3 class="h5 mb-3">Friends</h3>
+                <div class="d-grid gap-2">
+                    {% for friend in friends %}
+                    <div id="friend-container-{{ friend._id }}" class="d-flex align-items-center justify-content-between p-2 border rounded bg-light">
+                        <div class="d-flex align-items-center">
+                            <figure class="mb-0 me-3">
+                                {% if friend.photo %}
+                                <img src="/{{ friend.photo }}" class="rounded-circle object-fit-cover" style="width: 45px; height: 45px;">
+                                {% else %}
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png" class="rounded-circle" style="width: 45px; height: 45px;">
+                                {% endif %}
+                            </figure>
+                            <div class="d-flex flex-column">
+                                <span class="fw-bold"><a href="/show_user/{{ friend._id }}" class="text-decoration-none">{{ friend.username }}</a></span>
+                                <small class="text-muted">{{ friend.email }}</small>
+                            </div>
+                        </div>
+                        <button id="remove-friend-btn-{{ friend._id }}" class="btn btn-danger rm-fr-btn btn-sm" value="{{ friend._id }}">Remove friend</button>
+                    </div>
+                    {% else %}
+                    <span class="text-muted">No friends...</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="d-grid gap-4">
+                {% for day in days %}
+                <div id="day-{{ day._id }}" class="day-container card shadow-sm overflow-hidden">
+                    <div class="info-container card-header bg-white d-flex align-items-center justify-content-between py-3">
+                        <div class="user-container d-flex align-items-center">
+                            <figure class="mb-0 me-2">
+                                {% if day.user.photo %}
+                                <img src="/{{ day.user.photo }}" class="rounded-circle object-fit-cover" style="width: 35px; height: 35px;">
+                                {% else %}
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png" class="rounded-circle object-fit-cover" style="width: 35px; height: 35px;">
+                                {% endif %}
+                            </figure>
+                            <a href="/show_user/{{ day.user._id }}" class="text-decoration-none">
+                                <header class="fw-bold text-dark mb-0">{{ day.user.username }}</header>
+                            </a>
+                        </div>
+                        <div class="d-flex flex-column align-items-end small text-muted">
+                            <span class="timestamp">Created: {{ day.created }}</span>
+                            {% if day.last_updated %}
+                            <span class="timestamp">Last updated: {{ day.last_updated }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if day.photo %}
+                    <figure class="mb-0 border-bottom text-center bg-light">
+                        <img src="/{{ day.photo }}" class="img-fluid w-100 object-fit-cover" style="max-height: 400px;">
+                    </figure>
+                    {% endif %}
+                    <div class="card-body">
+                        <span class="d-block mb-2 fw-medium">How was it going? <a class="reaction badge bg-info text-dark text-decoration-none">{{ day.reaction }}</a></span>
+                        <p class="card-text text-secondary">{{ day.description }}</p>
+                        <button id="open-preview-{{ day._id }}" class="btn btn-primary btn-sm open-preview-day">Open preview</button>
+                    </div>
+                </div>
+
+                <div id="day-form-{{ day._id }}" class="day-form-container custom-lightbox-backdrop" hidden>
+                    <div class="custom-lightbox-content p-4 rounded shadow bg-white w-100" style="max-width: 500px;">
+                        <h4 class="mb-3 h5">Edit Timeline Entry</h4>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted fw-bold">Reaction</label>
+                            <select id="reaction-{{ day._id }}" class="form-select" value="{{ day.reaction }}">
+                                {% for reaction in ["awful", "bad", "normal", "good", "awesome"] %}
+                                <option value="{{ reaction }}">{{ reaction }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted fw-bold">Description</label>
+                            <textarea id="description-{{ day._id }}" class="form-control" rows="3" value="{{ day.description }}">{{ day.description }}</textarea>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label small text-muted fw-bold">Photo</label>
+                            <input id="photo-{{ day._id }}" class="form-control" type="file" accept="image/png, image/jpg, image/jpeg">
+                        </div>
+                        <div class="btn-container d-flex justify-content-end gap-2">
+                            <button id="dlt-day-btn-{{ day._id }}" class="btn btn-danger dlt-day-btn">Delete</button>
+                            <button id="upd-day-btn-{{ day._id }}" class="btn btn-primary upd-day-btn">Update</button>
+                            <button id="close-day-upd-form-{{ day._id }}" class="btn btn-outline-secondary close-day-btn">Close</button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="load-photo-form" class="custom-lightbox-backdrop" hidden>
+    <div class="custom-lightbox-content p-4 rounded shadow bg-white w-100" style="max-width: 400px;">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="h5 mb-0">Update Avatar</h4>
+            <button id="close-upd-form-btn" class="btn-close"></button>
+        </div>
+        <div>
+            <span class="d-block text-muted small mb-2">Upload new photo</span>
+            <input id="upd-photo" class="form-control mb-4" type="file">
+            <div class="d-flex justify-content-end gap-2">
+                <button class="btn btn-secondary" type="reset">Reset</button>
+                <button id="upd-user-photo-btn" class="btn btn-primary">Upload</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="dlt-user-form" class="custom-lightbox-backdrop" hidden>
+    <div class="custom-lightbox-content p-4 rounded shadow bg-white text-center w-100" style="max-width: 400px;">
+        <header class="h4 text-danger mb-3">Account deletion</header>
+        <span class="d-block text-muted mb-4">It is unreturnable process. Do you really wnat delete your account?</span>
+        <div class="d-flex justify-content-center gap-3">
+            <button id="not-delete-btn" class="btn btn-secondary w-50">No</button>
+            <button id="delete-btn" class="btn btn-danger w-50">Yes</button>
+        </div>
+    </div>
+</div>
+
+<div id="req-form" class="custom-lightbox-backdrop" hidden>
+    <div class="custom-lightbox-content p-4 rounded shadow bg-white w-100" style="max-width: 400px;">
+        <header class="h4 mb-3">Send request</header>
+        <input id="req-user-email" class="form-control mb-4" type="email" placeholder="User email">
+        <div class="d-flex justify-content-end gap-2">
+            <button id="close-req-form-btn" class="btn btn-secondary">Close</button>
+            <button id="send-req-btn" class="btn btn-primary">Send</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
