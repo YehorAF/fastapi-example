@@ -53,7 +53,7 @@ async def get_some_information(): # keyword "async" is used to define function a
 
 
 @app.post("/api")
-async def post_some_infromation():
+async def post_some_information():
     ...
 
 
@@ -69,7 +69,109 @@ async def delete_some_information():
 
 ## APIRouter
 
-It is instance that handles routing. `APIRouter` used for 
+It is instance that handles routing. `APIRouter` used to split routers on diffrenet files. It has not functionality and method (`mount`, `exception_handler`, `middleware` etc.), but it has HTTP methods (`get`, `post`, `put` etc.) and `websocket`. You can use it following way:
+
+- Imagine you have following project structure
+    - `./app`
+        - `main.py`
+        - `__init__.py`
+        - `/handlers`
+            - `router.py`
+            - `__init__.py`
+
+- In `app/handlers/router.py` you can define specific router
+```python
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/router") # you can use prefix to define path
+
+
+@router.get("/hello")
+async def send_hello_from_router():
+    return "hello"
+
+```
+
+- In `app/main.py` you can join to FastAPI the router
+```python
+from fastapi import FastAPI
+
+from handlers.router import router
+
+app = FastAPI()
+app.include_router(router)
+```
+
+How it is designed in example:
+
+- Structure:
+```sh
+app
+├───main.py
+├───__init__.py
+├───cache
+├───certificates
+├───database
+├───handlers
+│   ├───days.py
+│   ├───requests.py
+│   ├───users.py
+│   ├───views.py
+│   ├───__init__.py
+├───schemas
+├───static
+│   ├───css
+│   └───js
+├───templates
+└───utils
+```
+- Code:
+```python
+# days.py
+from fastapi import APIRouter
+
+days_router = APIRouter(prefix="/api/days")
+```
+
+```python
+# requests.py
+from fastapi import APIRouter
+
+requests_router = APIRouter(prefix="/api/requests")
+```
+
+```python
+# users.py
+from fastapi import APIRouter
+
+users_router = APIRouter(prefix="/api/users")
+```
+
+```python
+# views.py
+from fastapi import APIRouter
+
+views_router = APIRouter()
+```
+
+```python
+# main.py
+from fastapi import FastAPI
+
+from handlers.views import views_router
+from handlers.users import users_router
+from handlers.requests import requests_router
+from handlers.days import days_router
+
+app = FastAPI()
+
+app.include_router(views_router)
+app.include_router(users_router)
+app.include_router(requests_router)
+app.include_router(days_router)
+```
+
+More information about 
 
 # URL params
 
@@ -90,6 +192,8 @@ It is instance that handles routing. `APIRouter` used for
 ## Responses. HTMLResponse
 
 ## Responses. Pydantic BaseModel
+
+# Headers and cookies
 
 # File Handling
 
