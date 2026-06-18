@@ -1,9 +1,2 @@
-.env
-__pycache__
-bin
-lib
-lib64
-include
-celerybeat-schedule
-/app/public/days/*
-/app/public/users/*
+# Created by venv; see https://docs.python.org/3/library/venv.html
+*
