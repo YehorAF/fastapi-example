@@ -171,9 +171,149 @@ app.include_router(requests_router)
 app.include_router(days_router)
 ```
 
-More information about 
+More information about it by [link](https://fastapi.tiangolo.com/tutorial/bigger-applications/). 
 
 # URL params
+
+FastAPI URL handling based on [Starlette](https://starlette.dev). Due to it you can reference on the documentation to check possibility of using. You can define your router path with `{}` and write keyword in them, which then you can parse:
+
+```python
+@app.get("/some_thing/{thing_id}")
+async def get_some_thing(thing_id: int):
+    return thing_id
+```
+
+You can filter them by value type:
+```python
+@app.get("/values/{value: int}")
+async def get_int_value(value: int):
+    return f"integer value: {value}"
+    
+    
+@app.get("/values/{value: str}")
+async def get_str_value(value: str):
+    return f"string value: {value}"
+```
+
+Also if you use filtering by type, you should following:
+
+```python
+
+# you never get value from function get_my_value because {value: str} and my 
+# have same types and get_str_value cathc it
+@app.get("/values/{value}")
+async def get_str_value(value: str):
+    return f"string value: {value}"
+
+
+@app.get("/values/my")
+async def get_my_value():
+    return "my value"
+
+
+# instead you should use it next way
+@app.get("/values/my")
+async def get_my_value():
+    return "my value"
+
+
+@app.get("/values/{value}")
+async def get_str_value(value: str):
+    return f"string value: {value}"
+```
+
+You can filter only primitive types such as: int, float, str, uuid, path. If you want to handle own type, more information you can get [there](https://starlette.dev/routing/#path-parameters)
+
+
+You have several ways to filter parameters in the router:
+- describe in function parameters with defined type
+- describe in function parameters with Query
+- use pydantic.BaseModel
+
+How you can just describe in function parameters:
+```python
+@app.get("/values")
+async def get_filtered_values(
+    skip: int, # required parameter. if it is missed, app sends error
+    limit: int = 20, # set default value but you can use only integers
+    q: str | None = None, # string or None
+    do_not_use: list[str] = ["v1", "v2"] # list of strings
+):
+    pass
+```
+
+That `do_not_use` get all arguments correctly, you should define your URL params next way:  `&do_not_use=v1&do_not_use=v4&do_not_use=v2`. If you try to set different option such as `do_not_use=["v1", "v2", "v3"]` it parse as string.
+
+If you want to check your parameters you should use Query() with Annotated. How it looks:
+```python
+from typing import Annotated
+
+from fastapi import FastAPI, Query
+
+@app.get("/values")
+async def get_filtered_values(
+    skip: Annotated[int, Query(ge=0)], # greater or equal to 0, but required
+    limit: Annotated[int, Query(ge=1, le=20)] = 20, # greater or equal, lether or equal
+    q: Annotated[str | None, Query(min_length=2, max_length=50)] = None, # maximal and minimal character length
+    user: Annotated[str | None, Query(min_length=9, max_length=37, pattern="@\w+")] # with regular expression pattern
+)
+```
+
+For filtering and validation you can use `pydantic.BaseModel`. In the example described this method, because it provides specific validation possibilities:
+```python
+# app/schemas/queries.py
+
+from typing import Literal
+from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
+
+from schemas import ReactionEnum, PyObjectId
+
+# converts bson.ObjectId to string
+# PyObjectId = Annotated[str, BeforeValidator(str)]
+
+
+class TimeValidation(BaseModel):
+    @field_validator("min_timestamp", "max_timestamp", check_fields=False)
+    @classmethod
+    def validate_by_one(cls, value):
+        return value
+    
+
+    @field_validator("max_timestamp", check_fields=False)
+    @classmethod
+    def check_time(cls, value, info) -> datetime:
+        if (info.data["min_timestamp"] and 
+            value and 
+            info.data["min_timestamp"] > value):
+            raise ValueError("Correct your time range")
+        return value
+    
+
+    @field_validator("sort", check_fields=False, mode="before")
+    @classmethod
+    def check_sort(cls, value, info) -> int:
+        try:
+            value = int(value)
+        except TypeError:
+            raise TypeError("sort should be integer")
+        
+        return value
+
+
+class QueryDays(TimeValidation):
+    reactions: list[ReactionEnum] = Field(
+        ["awful", "bad", "normal", "good", "awesome"]
+    )
+    min_timestamp: datetime | None = None
+    max_timestamp: datetime | None = None
+    limit: int = Field(default=20, ge=1, le=20)
+    skip: int = Field(default=0, ge=0)
+    sort: Literal[-1, 1] = -1
+    sort_by: str = "_id"
+    is_my: bool = False
+
+```
 
 # Request/Response Schemas
 
