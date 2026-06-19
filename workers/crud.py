@@ -2,11 +2,20 @@ from datetime import datetime, timedelta
 from pymongo import MongoClient, UpdateOne, UpdateMany
 import os
 
-client = MongoClient(os.getenv("MONGO_URI"))
-db = client[os.getenv("MONGO_DB")]
+client = None
+db = None
+
+
+def init_db():
+    global client, db
+
+    if not client:
+        client = MongoClient(os.getenv("MONGO_URI"))
+        db = client[os.getenv("MONGO_DB")]
 
 
 def remove_requests():
+    init_db()
     return db.requests.delete_many({
         "timestamp": {
             "$lt": datetime.now() - 
@@ -16,6 +25,7 @@ def remove_requests():
 
 
 def remove_orphaned_days():
+    init_db()
     res = [v["_id"] for v in db.days.aggregate([
         {
             "$lookup": {
@@ -36,6 +46,7 @@ def remove_orphaned_days():
 
 
 def update_user_references():
+    init_db()
     friend_batches = []
     request_batches = []
     day_batches = []
@@ -86,6 +97,7 @@ def update_user_references():
 
 
 def remove_orphaned_friends():
+    init_db()
     res = db.users.aggregate([
         { "$unwind": "$friends" },
         {

@@ -6,6 +6,7 @@ if not os.getenv("REDIS_URI"):
     dotenv.load_dotenv()
 
 from celery import Celery
+from celery.signals import worker_process_init
 
 import crud
 
@@ -15,27 +16,30 @@ app = Celery(
     backend=os.getenv("REDIS_URI")
 )
 
+@worker_process_init.connect
+def configure_workers(*args, **kwargs):
+    crud.init_db()
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         int(os.getenv("EXP_TIME", 60*60*12)),
-        remove_requests,
+        remove_requests.s(),
         name="remove requests"
     )
     sender.add_periodic_task(
         int(os.getenv("EXP_TIME", 60*60*12)),
-        remove_orphaned_days,
+        remove_orphaned_days.s(),
         name="remove orphaned days"
     )
     sender.add_periodic_task(
         int(os.getenv("EXP_TIME", 60*60*12)),
-        remove_orphaned_friends,
+        remove_orphaned_friends.s(),
         name="remove orphaned friends"
     )
     sender.add_periodic_task(
         int(os.getenv("EXP_TIME", 60*60*12)),
-        update_user_references,
+        update_user_references.s(),
         name="update user references"
     )
 
@@ -67,7 +71,6 @@ def update_user_references():
     crud.update_user_references()
     logging.info("update_user_references finished")
     
-
 
 # celery -A worker.app worker --loglevel=info
 # celery -A worker.app beat --loglevel=info
