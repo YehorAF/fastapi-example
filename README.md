@@ -260,6 +260,7 @@ async def get_filtered_values(
 ```
 
 For filtering and validation you can use `pydantic.BaseModel`. In the example described this method, because it provides specific validation possibilities:
+
 ```python
 # app/schemas/queries.py
 
@@ -272,17 +273,28 @@ from schemas import ReactionEnum, PyObjectId
 # converts bson.ObjectId to string
 # PyObjectId = Annotated[str, BeforeValidator(str)]
 
-
+# BaseModel provides value validation using 
+# typing instances, built-in decorattors and validation classes
 class TimeValidation(BaseModel):
+
+    # there we use such method to init min_timestamp and max_timestamp attributes.
+    # check_fields=False -- do not check attributes of class
+    # firstly, it calls for min_timestamp, then it calls for max_timestamp
     @field_validator("min_timestamp", "max_timestamp", check_fields=False)
     @classmethod
     def validate_by_one(cls, value):
         return value
     
 
+    # there we can validate max_timestamp and min_timestamp.
+    # due to validate_by_one which was before we can call validation once
+    # and check defined attributes.
     @field_validator("max_timestamp", check_fields=False)
     @classmethod
-    def check_time(cls, value, info) -> datetime:
+    def check_time(cls, value, info) -> datetime: # value ~ max_timestamp, 
+                                                  # info.data ~ processed attributes
+
+        # checks if min_timestamp and max_timestamp not None to compare them
         if (info.data["min_timestamp"] and 
             value and 
             info.data["min_timestamp"] > value):
@@ -290,6 +302,9 @@ class TimeValidation(BaseModel):
         return value
     
 
+    # Literal checks if value equial to specified values without type validation.
+    # that is why we should use field_validator to cast it into integer
+    # and then gives to Literal
     @field_validator("sort", check_fields=False, mode="before")
     @classmethod
     def check_sort(cls, value, info) -> int:
@@ -300,11 +315,11 @@ class TimeValidation(BaseModel):
         
         return value
 
-
+# inherit TimeValidation
 class QueryDays(TimeValidation):
     reactions: list[ReactionEnum] = Field(
         ["awful", "bad", "normal", "good", "awesome"]
-    )
+    ) # we can use pydantic.Field as Query
     min_timestamp: datetime | None = None
     max_timestamp: datetime | None = None
     limit: int = Field(default=20, ge=1, le=20)
@@ -312,28 +327,352 @@ class QueryDays(TimeValidation):
     sort: Literal[-1, 1] = -1
     sort_by: str = "_id"
     is_my: bool = False
+```
 
+How we can use it for routins params validation:
+
+```python
+from fastapi import APIRouter, Query, Depends
+
+...
+
+from schemas.queries import QueryDays
+from utils.dependencies import is_authed
+
+...
+
+days_router = APIRouter(prefix="/api/days")
+
+
+@days_router.get("/", response_model=GetDayListModel)
+async def get_day_list(
+    query: Annotated[QueryDays, Query()], # because we define type/instance, 
+                                          # we do not use "="
+    user_cache: Annotated[dict[str, Any], Depends(is_authed)] # it will be later
+):
+    ...
 ```
 
 # Request/Response Schemas
 
-## Requests. Body
-
-## Requests. Form
+OpenAPI provides possibility of defining your API schema using different tools, in example, pydantic.BaseModel and built-in JSONResponse, HTMLResponse, Form etc. 
 
 ## Requests. Pydantic BaseModel
 
-## Responses. Response
+The basic and most correct variant is using pydantic.BaseModel for handaling data. But it **recieves only JSON-like data** requests. How to use it:
 
-## Responses. JSON Response
+```python
+from typing import Optional
 
-## Responses. Form
+# pydantic provides different types to validate basic data
+from pydantic import BaseModel, EmailStr, FilePath, AnyUrl, Field
+
+# but pydantic does not support bson.ObjectId that is why
+# you should use own solution
+from schemas import PyObjectId
+
+
+class UserModel(BaseModel):
+    # you can use prydantic.Filed to validate attributes.
+    # "alias" provides declaring another attribute variation
+    id: Optional[PyObjectId] = Field(None, alias="_id")
+    email: EmailStr
+    username: str = Field(min_length=8, max_length=32)
+    photo: Optional[FilePath | AnyUrl] = None # Optional[some_type] ~ None or some_type 
+
+    ...
+
+
+class GetMeModel(UserModel):
+    friends: list[UserModel] # we can use it in such case also
+
+    ...
+
+class InsertUserModel(UserModel):
+    password: str
+
+    ...
+```
+
+How to declare it in function:
+```python
+
+@users_router.post("/me/sign")
+async def sign_user(
+    request: Request, # it is needed for another action
+    user: InsertUserModel
+):
+    ...
+```
+
+Request data example:
+```json
+{
+    "email": "new_user@gmail.com",
+    "username": "new_player_123",
+    "photo": "https://domain.com/avatar.jpg",
+    "password": "SuperSecurePassword123!"
+}
+```
+
+If we want send multiple parameters, you can do next:
+```python
+from typing import Annotated
+from pydantic import BaseModel
+
+from fastapi import FastAPI, Header
+
+class A(BaseModel):
+    id: int
+    value: str
+    tags: list[str]
+
+class B(BaseModel):
+    id: int
+    depricated_a: list[A]
+
+
+app = FastAPI()
+
+
+@app.post("/insert_some_value/{some_id}")
+async def insert_some_value(
+    some_id: int,
+    a: A, 
+    b: B, 
+    user_agent: Annotated[str, Header()], # it parses automatically
+    q: str | None = None, # URL parameter
+    limit: int = 20 # URL parameter
+):
+    ...
+```
+
+In such case request data looks like:
+```json
+{
+    "a": {
+        "id": 1,
+        "value": "long-value",
+        "tags": ["t1", "t2"]
+    },
+    "b": {
+        "id": 1,
+        "depricated_a": [
+            {
+                "id": 2,
+                "value": "ABC",
+                "tags": ["t1", "t2"]
+            },
+            {
+                "id": 3,
+                "value": "123",
+                "tags": ["t1", "t2"]
+            }
+        ]
+    }
+}
+```
+
+You should just split on different fields. Also you can use it with query, path and header parameters.
+
+## Requests. Body
+
+If you want to send buil-in data asuch as previous example but for one item or define additional body parameter you should use next:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel
+
+from fastapi import FastAPI, Body
+
+class A(BaseModel):
+    id: int
+    value: str
+    tags: list[str]
+
+
+app = FastAPI()
+
+
+
+@app.post("/send_something")
+async def send_something(a: Annotated[A, Body(embed=True)]):
+    # request example
+    # {
+    #     "a": {
+    #         "id": 1,
+    #         "value": "long-value",
+    #         "tags": ["t1", "t2"]
+    #     }
+    # }
+    ...
+
+@app.post("send_not_declared_body_params")
+async def send_not_declared_body_params(
+    a: Annotated[int, Body()],
+    b: Annotated[str, Body()]
+):
+    # request example
+    # {
+    #     "a": 1,
+    #     "b": "some string"
+    # }
+    ...
+```
+
+## Requests. Form
+
+When your client sends request data in `multipart/form-data` format, you cannot process as JSON and due to with BaseModel, because it expects JSON format. FastAPI provides instance Form which can parse form-data:
+```python
+from typing import Annotated
+from pydantic import BaseModel
+
+from fastapi import FastAPI, Form
+
+class A(BaseModel):
+    id: int
+    value: str
+
+
+app = FastAPI()
+
+@app.post("/post_a")
+async def post_form(a: Annotated[A, Form()]):
+    """
+    expected request
+    {
+        "id": 1,
+        "value": "string value",
+    }
+    """
+    ...
+
+
+@app.post("/post_one_value")
+async def post_one_value(value: Annotated[str, Form()]):
+    """
+    expected request
+    {
+        "value": "string value"
+    }
+    """
+    ...
+```
+
+You can not combine JSON and form-data, but you can get query, path, header and cookie parameters.
+
+## Responses. JSONResponse and BaseModel
+
+As default FastAPI sends response as plan text, but if you want to send json response, you should use JSONResponse or BaseModel, for the last you can describe data and use it for documentation.
+
+```python
+from typing import Annotated
+from pydantic import BaseModel
+
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+
+
+class A(BaseModel):
+    id: int
+    value: str
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": 1,
+                    "value": "string value"
+                }
+            ]
+        }
+    }
+
+
+app = FastAPI()
+
+# we can init our response model that user can see it
+@app.get("/get_a", response_model=A)
+async def get_a():
+    return {"id": 1, "value": "string value"}
+
+
+# in this case user can not see response schema
+@app.get("/get_json_data")
+async def get_json_data():
+    return JSONResponse({"value": "hello there!"})
+```
 
 ## Responses. HTMLResponse
 
-## Responses. Pydantic BaseModel
+FastAPI gives you send HTML pages and create templates for them (more information in "File Handling => Templates")
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
+app = FastAPI()
+
+
+@app.get("/pages/1")
+async def get_page1():
+    return HTMLResponse("<h1>Hello there</h1>")
+
+    
+@app.get("/pages/2", response_class=HTMLResponse)
+async def get_page2():
+    return "<h1>Wow! You on the second page</h1>"
+```
+
+## Responses. RedirectResponse
+
+Sometimes you want to redirect user after correct or incorrect request on server side. You can use RedirectResponse:
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+
+app = FastAPI()
+
+@app.get("/jsut_redirect_me")
+async def just_redirect_me():
+    # aiohttp uses "raise" with HTTPFound etc. classes
+    # to redirect on another page. 
+    # that approcach is better sometimes, when you want redirect from 
+    # some function or block of codes 
+    return RedirectResponse("/get_out_there")
+```
+
+For sending exceptions such as 404 or 403 we use HTTPException, what will be described below.
 
 # Headers and cookies
+
+For security, authorization and processing specific data you should handle header and cookie fields. FastAPI provides different approaches to work with them.
+
+You can parse cookies and headers in function attributes:
+```python
+from fastapi import FastAPI, Cookie, Header
+
+app = FastAPI()
+```
+
+Also it is possible to define headers in BaseModel and parse them in function:
+```python
+```
+
+But you can manually get paramteres from the Request:
+```python
+```
+
+To add cookies or headers you should initialize any Response instance (JSONResponse, HTMLResponse, RedirectResponse etc.) and using method `set_cookie()` (for cookies) or get attribute `headers` and method `append()` (for header) add value
+```python
+```
+
+If you want to delete cookie, you should use method `delete_cookie()`:
+```python
+```  
+
+# Dependencies
 
 # File Handling
 
@@ -343,9 +682,9 @@ class QueryDays(TimeValidation):
 
 ## Templates
 
-# CRUD and 
+# CRUD
 
-# Exception handle
+# Exception handling
 
 # How to start
 
