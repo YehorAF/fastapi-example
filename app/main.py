@@ -1,6 +1,6 @@
 import aiofiles
 import dotenv
-from typing import Annotated, Any, Iterable
+from typing import Annotated, Any, AsyncIterable
 import os
 
 if not os.getenv("MONGO_URI"):
@@ -35,7 +35,7 @@ async def handle_files(
     filename: str,
     request: Request, 
     user_cache: Annotated[dict[str, Any], Depends(is_authed)]
-):
+) -> AsyncIterable[bytes]:
     path = (
         f"{os.getenv('PRJ_DIR')}{os.getenv('PUBLIC_DIR')}/"
         f"{dir}/{dir_id}/{filename}"
@@ -48,7 +48,6 @@ async def handle_files(
                 else:
                     break
     except Exception as ex:
-        print(ex)
         raise HTTPException(404, "not such file")
 
 

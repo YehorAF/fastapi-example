@@ -1,4 +1,4 @@
-from fastapi import Depends, Request, HTTPException
+from fastapi import Request, HTTPException
 
 from cache.crud import get_user_from_cache
 from utils.exceptions import TokenException

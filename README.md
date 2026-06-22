@@ -651,43 +651,539 @@ For security, authorization and processing specific data you should handle heade
 
 You can parse cookies and headers in function attributes:
 ```python
+from typing import Annotated
+
 from fastapi import FastAPI, Cookie, Header
 
 app = FastAPI()
+
+# FastApi provides auto converting
+@app.get("/check_headers")
+async def check_headers(
+    user_agent: Annotated[str | None, Header()] = None, # User-Agent => user_agent
+    x_user_id: Annotated[str | None, Header()] = None, # X-User-Id => x_user_id
+    some_value: Annotated[str | None, Header(convert_underscores=False)] = None, # disable auto converting
+    token: Annotated[str | None, Cookie()] = None, # parses field "Cookies" 
+                                                   # and takes value from attribute
+                                                   # token
+    session: Annotated[str | None, Cookie()] = None # without None it will be required
+):
+    return {
+        "user_agent": user_agent,
+        "x_user_id": x_user_id,
+        "some_value": some_value,
+        "token": token,
+        "session": session,
+    }
 ```
 
 Also it is possible to define headers in BaseModel and parse them in function:
 ```python
+from typing import Annotated
+from pydantic import BaseModel
+
+from fastapi import FastAPI, Cookie, Header
+
+
+class HeaderModel(BaseModel):
+    x_token: str | None = None # if 
+    x_user_id: str | None = None
+
+
+class CookieModel(BaseModel):
+    token: str | None = None
+    session: str | None = None
+
+
+@app.get("/check_headers")
+async def check_headers(
+    headers: Annotated[HeaderModel, Header()],
+    cookies: Annotated[CookieModel, Cookie()]
+):
+    return {
+        "headers": headers.model_dump()
+        "cookies": cookies.model_dump()
+    }
 ```
 
 But you can manually get paramteres from the Request:
 ```python
+# example from app/utils/dependencies.py
+from fastapi import Request, HTTPException
+
+from cache.crud import get_user_from_cache
+from utils.exceptions import TokenException
+
+
+async def is_admin(request: Request):
+    # request.cookies and request.headers have Map instance that provides
+    # dict methods to get data and declines updation data methods
+    if not (token := request.cookies.get("token")):
+        raise TokenException(request.url.path)
+
+    if not (values := await get_user_from_cache(token)):
+        raise TokenException(request.url.path)
+    
+    if values["status"] != "admin":
+        raise HTTPException(
+            status_code=403, detail=f"you are not admin")
+    
+    return values | {"token": token}
 ```
 
 To add cookies or headers you should initialize any Response instance (JSONResponse, HTMLResponse, RedirectResponse etc.) and using method `set_cookie()` (for cookies) or get attribute `headers` and method `append()` (for header) add value
 ```python
+# example from app/handlers/users.py
+@users_router.post("/me/sign")
+async def sign_user(request: Request, user: InsertUserModel):
+    pk = crypto.PKey()
+    pk.generate_key(crypto.TYPE_RSA, 512)
+    salt = crypto.dump_privatekey(crypto.FILETYPE_PEM, pk)
+    password = jwt.encode({"password": user.password}, salt, algorithm="RS256")
+
+    try:
+        res = await mongo_insert_user(
+            **user.model_dump(exclude=["password"]), salt=salt, password=password)
+        inserted_id = str(res.inserted_id)
+    except DuplicateKeyError as err:
+        raise HTTPException(
+            400, 
+            "Account with such email or username have already created"
+        )
+    except Exception as err:
+        raise HTTPException(400, str(err)) # add information
+
+    token = uuid.uuid4().hex
+    exp_time = int(os.getenv("EXP_TIME")) or 2592000
+
+    await cache_user(
+        request.client.host, inserted_id, token, "user", exp_time
+    )
+
+    # you can add headers only when you init Response instance
+    response = JSONResponse(content={}, headers={"X-UserId": inserted_id})
+
+    # set token value (key, value, expire time)
+    response.set_cookie(
+        "token", 
+        token, 
+        exp_time,
+    )
+
+    return response
 ```
 
 If you want to delete cookie, you should use method `delete_cookie()`:
 ```python
+# example from app/handlers/users.py
+@users_router.post("/me/quit")
+async def quit_account(user_cache: Annotated[dict[str, Any], Depends(is_authed)]):
+    await delete_user_cache(user_cache["token"])
+
+    response = JSONResponse({"detail": "user token was removed"})
+    response.delete_cookie("token") # it will remove defiend cookie value on client side
+
+    return response
 ```  
 
 # Dependencies
 
+Dependencies provide middleware or decorator functionality, but the main difference from middleware is that it works only on defined functions or routers and before function starts. For our example we use dependencies to check if user signed in application and if he has special rights. In another cases you can use it for data validation, pass specific parameters etc.
+
+How we init our dependency function:
+```python
+# app/utils/dependencies.py
+from fastapi import Request, HTTPException
+
+from cache.crud import get_user_from_cache
+from utils.exceptions import TokenException
+
+# we can not pass values in annotations block that is why we should
+# use teo function that provides same functionality
+async def is_admin(request: Request): # in dependency we can use all attributes, which are used in function
+    if not (token := request.cookies.get("token")):
+        raise TokenException(request.url.path)
+
+    if not (values := await get_user_from_cache(token)):
+        raise TokenException(request.url.path)
+    
+    if values["status"] != "admin":
+        raise HTTPException(
+            status_code=403, detail=f"you are not admin")
+    
+    return values | {"token": token} # we can send specific value
+
+
+async def is_authed(request: Request):
+    if not (token := request.cookies.get("token")):
+        raise TokenException(request.url.path)
+    
+    if not (values := await get_user_from_cache(token)):
+        raise TokenException(request.url.path)
+
+    # better to use on startup to set statuses
+    if values["status"] not in ["admin", "user", "client"]:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"you have not access there without any status")
+    
+    return values | {"token": token}
+```
+
+How we can use it in function:
+```python
+# app/handlers/users.py
+@users_router.post("/me/quit")
+async def quit_account(user_cache: Annotated[dict[str, Any], Depends(is_authed)]):
+    await delete_user_cache(user_cache["token"])
+
+    response = JSONResponse({"detail": "user token was removed"})
+    response.delete_cookie("token")
+
+    return response
+```
+
+Also it is allowed to use next methods:
+```python
+from typing import Annotated
+
+from fastapi import FastAPI, Depends, Header 
+
+# it works under methods __init__ (initialize class) and __call__ (class is used as function)
+class CheckParams:
+    def __init__(self, q: str | None, skip: int = 0, limit: int = 20):
+        self.q = q
+        self.skip = skip
+        self.limit = limit
+
+# we can use dependency in another dependency
+async def check_params_and_get_token(
+    params: Annotated[CheckParams, Depends()], # due to instance will ne called we can use this structure
+    x_token: Annotated[str, Header()]
+):
+    return {"params": params, "x_token": x_token}
+
+# it is pseudocode that is why it will not work
+# we can initialize connection and pass it to function as arguemnt
+# than after completion or erro close it
+# alos it works with "with" or "async with"
+def yield_db():
+    db = SomeDBInstance()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+app = FastAPI()
+
+
+@app.get("/check_dependencies")
+def check_dependencies(
+    params: Annotated[dict, Depends(check_params_and_get_token)], # we can use async dependencies in sync function and otherway
+    db: Annotated[SomeDBInstance, yield_db]
+):
+    ...
+```
+
+More information about using [dependency as class](https://fastapi.tiangolo.com/tutorial/dependencies/classes-as-dependencies/#classes-as-dependencies_1), [global dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/global-dependencies/) and [another examples](https://fastapi.tiangolo.com/tutorial/dependencies/) in FastAPI documentation. But it is better keep it simple and do not complecate dependencies (complex database requests, requests to external APIs, calculation etc.) because it will slow every client request processing and reduce server efficiency.
+
 # File Handling
+
+FastAPI provides different variations to handle file for different tasks. For HTML file hadnling we can use Jinja2, for staric files such as JS scripts, CSS and some images we can use StaticFiles and for dynamic files we can use third-party tools such as Azure Blob Storage and Nextcloud or provide own solution.
 
 ## UploadFile, File
 
+We can use it to handle user loaded files such as photos or documents. For them we data-multipart requests. There are two instances which handle user files: File and UploadFile. File we can use for small files because it loads them all and saves in RAM until has processed them:
+
+```python
+from typing import Annotated
+
+from fastapi import FastAPI, File
+
+app = FastAPI()
+
+
+@app.post("/files/")
+async def create_file(
+    file: Annotated[bytes, File()] # file is loaded as bytes once
+):
+    ...
+```
+
+How we can handle larger files:
+
+```python
+# app/handlers/users.py
+@users_router.post("/me/photo/upload")
+async def upload_photo(
+    file: UploadFile, # declare file instance, firslty it sends schema and then data
+    user_cache: Annotated[dict[str, Any], Depends(is_authed)]
+):
+    user_id = bson.ObjectId(user_cache["user_id"])
+    dir_uri = f"{os.getenv('PUBLIC_DIR')}/users/{user_id}" # use pathlib instead of this
+    photo_uri = f"{dir_uri}/{user_id}-{file.filename}"
+
+    # creates or clears user directory with photos
+    create_or_clear_dir(f"{os.getenv('PRJ_DIR')}/{dir_uri}")
+
+    # creates and opens file
+    async with aiofiles.open(f"{os.getenv('PRJ_DIR')}/{photo_uri}", "wb") as fp:
+        while True:
+            # reads file data until does not get EOF
+            if (data := await file.read(int(os.getenv("FILE_SIZE")) or 1024)):
+                # in such case data is delivered by chunks from client to server
+                # when chunk is loaded and written interpretator free it and load next
+                # that is why large files can not lead to memory issue
+               await fp.write(data)
+            else:
+                break
+
+    # set link on new user photo
+    res = await mongo_update_user(user_id, photo=photo_uri)
+
+    if res.modified_count < 1:
+        shutil.rmtree(f"{os.getenv('PRJ_DIR')}/{dir_uri}")
+
+        raise HTTPException(400, "user was not updated with photo")
+    
+    return JSONResponse({"detail": "photo was uploaded"})
+```
+
+Also we can upload several files:
+
+```python
+import aiofiles
+
+from fastapi import FastAPI, UploadFile
+
+app = FastAPI()
+
+
+@app.post("/load_several_files")
+async def load_several_files(files: list[UploadFile]):
+    # go through list and load all files
+    for i, file in zip(range(len(files)), files):
+        async with aiofiles.open(f"file{i}-{file.filename}", "wb") as fp:
+            while True:
+                if (data := await file.read):
+                    await fp.write(data)
+                else:
+                    break
+```
+
+If we want to give user defined file, we can use StreamingResponse and AsyncIterable/Iterable:
+
+```python
+# app/main.py
+@app.get("/public/{dir}/{dir_id}/{filename}", response_class=StreamingResponse)
+async def handle_files(
+    dir: str,
+    dir_id: str,
+    filename: str,
+    request: Request, 
+    user_cache: Annotated[dict[str, Any], Depends(is_authed)]
+) -> AsyncIterable[bytes]:
+    path = (
+        f"{os.getenv('PRJ_DIR')}{os.getenv('PUBLIC_DIR')}/"
+        f"{dir}/{dir_id}/{filename}"
+    )
+    try:
+        # open and read file by bytes 
+        async with aiofiles.open(path, "rb") as fp:
+            while True: 
+                # read files by chunks
+                if chunk := await fp.read(int(os.getenv("FILE_SIZE"))):
+                    # send chunk of file to user
+                    yield chunk
+                else:
+                    break
+    except Exception as ex:
+        raise HTTPException(404, "not such file")
+```
+
+StreamingResponse provides posibility to send video and adio files. On client side you can also play them while they are loading.
+
 ## StaticFiles
+
+If you have static files that after deploying be unchangable, to broadcast them you can use StaticFiles. How it works:
+1. Cretae folder with your static files
+2. Initilize instance `StaticFiles` and set folder location and URL path
+3. Use method `mount` to mount instance to app
+
+```python
+# app/main.py
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), "static")
+```
+
+Mount works in another way then routers. It mounts ASGI app (but it is also possible to use WSGI with specific settings) to defined path, that will be handeled this app. It means, that request to `/static/` will be handeled by StaticFiles, than it will process URL path and init for each content defined router. Due to it you can not load files and then try to get them without restarting application.
 
 ## Templates
 
-# CRUD
+If you have small application with several pages that do not need any JS content handling or you do not want to learn any JS framework for small project, you can use templates. FastAPI provides templating with Jinja2.
+
+How you can use it in FastAPI:
+
+```python
+# app/handlers/views.py
+views_router = APIRouter()
+templates = Jinja2Templates("templates") # init Jinja2 templating, pass path to folder with templates
+
+...
+# because Jinj2 converts it into HTML you should use HTMLResponse
+@views_router.get("/show_days", response_class=HTMLResponse)
+async def load_days(
+    request: Request, # it is necessary
+    query: Annotated[QueryDays, Query()],
+    user_cache: Annotated[dict[str, Any], Depends(is_authed)]
+):
+    skip = query.skip
+    limit = query.limit
+    user_id = bson.ObjectId(user_cache["user_id"])
+    res = await mongo_get_day_list_with_checking(
+        user_id=user_id, 
+        limit=limit + 1, 
+        **query.model_dump(by_alias=True, exclude=["limit"])
+    )
+    
+    # process template
+    return templates.TemplateResponse(
+        request=request, 
+        name="days.html", # path or name of html file
+        context={ # you can pass arguemnts to html document
+            "days": res[:limit], 
+            "is_prev": skip >= limit, 
+            "is_next": (res_len := len(res) - 1) > 0 and res_len % limit == 0
+        }
+    )
+```
+
+How it looks on document side:
+
+```jinja
+{# app/templates/base.html #}
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>{% block title %}{% endblock %}</title>
+    {# cut scripts #}
+    {% block scripts %}{% endblock %}
+    {% block css %}{% endblock %}
+</head>
+
+<body>
+    <nav id="app-nav" class="nav">
+        ...
+    </nav>
+    <div id="log-message">
+        ...
+    </div>
+    <main id="app-main">
+        {% block app %}{% endblock %}
+    </main>
+    <footer id="app-footer"></footer>
+</body>
+
+</html>
+```
+
+```jinja
+{# app/templates/days.html #}
+{% extends "base.html" %} {# init template #}
+
+{% block title %}Days{% endblock %}
+
+{% block scripts %} 
+<script type="module" src="/static/js/days.js"></script>
+{% endblock %}
+
+{% block css %} 
+<link rel="stylesheet" href="/static/css/days.css">
+{% endblock %}
+
+
+{% block app %}
+
+<div class="container my-5" style="max-width: 800px;">
+    ...
+    <div class="d-grid gap-4">
+        {% for day in days%}
+
+        <div id="day-{{ day._id }}" class="day-container card shadow-sm overflow-hidden border-light bg-white">
+            <div class="info-container card-header bg-white d-flex align-items-center justify-content-between py-3 border-0">
+                <div class="user-container d-flex align-items-center">
+                    <figure class="mb-0 me-2">
+                        {% if day.user.photo %}
+                        <img src="{{ day.user.photo }}" class="rounded-circle object-fit-cover border" style="width: 38px; height: 38px;">
+                        {% else %}
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png" class="rounded-circle border" style="width: 38px; height: 38px;">
+                        {% endif %}
+                    </figure>
+                    <a href="views/users/{{ day.user._id }}" class="text-decoration-none">
+                        <header class="fw-bold text-dark mb-0">{{ day.user.username }}</header>
+                    </a>
+                </div>
+                <div class="d-flex flex-column align-items-end small text-muted" style="font-size: 0.75rem;">
+                    <span class="timestamp">Created: {{ day.created }}</span>
+                    {% if day.last_updated %}
+                    <span class="timestamp">Last updated: {{ day.last_updated }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <figure class="mb-0 border-vertical text-center bg-light">
+                {% if day.photo %}
+                <img src="/{{ day.photo }}" class="img-fluid w-100 object-fit-cover" style="max-height: 450px;">
+                {% endif %}
+            </figure>
+            
+            <div class="card-body p-4">
+                <span class="d-block mb-2 fw-medium text-dark">
+                    How was it going? 
+                    <a class="reaction badge bg-info text-dark text-decoration-none ms-1 text-capitalize">{{ day.reaction }}</a>
+                </span>
+                <p class="card-text text-secondary mb-0" style="white-space: pre-wrap;">{{ day.description }}</p>
+            </div>
+        </div>
+
+        {% endfor %}
+    </div>
+
+    <nav class="nav-page-btns d-flex justify-content-center gap-3 mt-5 border-top pt-4">
+        <a id="previous-days" class="btn btn-outline-secondary px-4 btn-sm fw-semibold text-decoration-none {% if not is_prev %}disabled{% endif %}" style="cursor: pointer;" {% if not is_prev %}aria-disabled="true"{% endif %}>previous</a>
+        <a id="next-days" class="btn btn-outline-primary px-4 btn-sm fw-semibold text-decoration-none {% if not is_next %}disabled{% endif %}" style="cursor: pointer;" {% if not is_next %}aria-disabled="true"{% endif %}>next</a>
+    </nav>
+
+</div>
+
+{% endblock %}
+```
+
+For templates we can init base file `base.html` where we have described basic libs, navigation, footer etc. If we need to initialize changable element which is depending on defined file we can use `{% block <block_name> %}{% endblock %}`. To get base template we should use `{% extends "<base_file_name>" %}`. 
+
+If we want use data that was sent from FastAPI router we can get it with `{{ <var_name> }}`. If variable is dict/json, we can get access to data with point and attribute name: `{{ dict.attribute }}`. If we have list we can get with defined location number `{{ list[0] }}` or with `{% for var in list %}{% endfor %}`. 
+
+Jinja2 provides if-statements: `{% if <python-statement> %}{% endif %}`. You can use python basic built-in python operations to check value. More information about Jinja2 templating you can find [there](https://jinja.palletsprojects.com/en/stable/templates/). 
+
+Today is better to use JS/TS frameworks because they provides easier managing and rendering data on client side, in example, loading new content, changing data, animations etc. With Jinja2 not provides basic templates as Dash or DjangoForms, for animations, form manipulations etc. you will use JS any way without useStates (or similar methods), effective localStorage or caching, comfortable project structure with defined components.
 
 # Exception handling
+
+FastAPI provides instrument to handle excpetions. It is usefull when 
+
+# CRUD
+
+# Caching
 
 # How to start
 
 ## Venv
 
 ## Docker
+
+# What were not included in example
