@@ -88,7 +88,7 @@ router = APIRouter(prefix="/router") # you can use prefix to define path
 
 @router.get("/hello")
 async def send_hello_from_router():
-    return "hello"
+    return {"message": "hello"}
 
 ```
 
@@ -180,19 +180,19 @@ FastAPI URL handling based on [Starlette](https://starlette.dev). Due to it you 
 ```python
 @app.get("/some_thing/{thing_id}")
 async def get_some_thing(thing_id: int):
-    return thing_id
+    return {"thing_id": thing_id}
 ```
 
 You can filter them by value type:
 ```python
 @app.get("/values/{value: int}")
 async def get_int_value(value: int):
-    return f"integer value: {value}"
+    return {"value": f"integer value: {value}"}
     
     
 @app.get("/values/{value: str}")
 async def get_str_value(value: str):
-    return f"string value: {value}"
+    return {"value": f"string value: {value}"}
 ```
 
 Also if you use filtering by type, you should following:
@@ -203,23 +203,24 @@ Also if you use filtering by type, you should following:
 # have same types and get_str_value cathc it
 @app.get("/values/{value}")
 async def get_str_value(value: str):
-    return f"string value: {value}"
+    return {"value": f"string value: {value}"}
 
 
 @app.get("/values/my")
 async def get_my_value():
-    return "my value"
+    return {"value": "my value"}
+```
 
-
+```python
 # instead you should use it next way
 @app.get("/values/my")
 async def get_my_value():
-    return "my value"
+    return {"value":: "my value"}
 
 
 @app.get("/values/{value}")
 async def get_str_value(value: str):
-    return f"string value: {value}"
+    return {"value": f"string value: {value}"}
 ```
 
 You can filter only primitive types such as: int, float, str, uuid, path. If you want to handle own type, more information you can get [there](https://starlette.dev/routing/#path-parameters)
@@ -1170,20 +1171,549 @@ If we want use data that was sent from FastAPI router we can get it with `{{ <va
 
 Jinja2 provides if-statements: `{% if <python-statement> %}{% endif %}`. You can use python basic built-in python operations to check value. More information about Jinja2 templating you can find [there](https://jinja.palletsprojects.com/en/stable/templates/). 
 
-Today is better to use JS/TS frameworks because they provides easier managing and rendering data on client side, in example, loading new content, changing data, animations etc. With Jinja2 not provides basic templates as Dash or DjangoForms, for animations, form manipulations etc. you will use JS any way without useStates (or similar methods), effective localStorage or caching, comfortable project structure with defined components.
+Today is better to use JS/TS frameworks because they provide easier managing and rendering data on client side, in example, loading new content, changing data, animations etc. With Jinja2 not provides basic templates as Dash or DjangoForms, for animations, form manipulations etc. you will use JS any way without useStates (or similar methods), effective localStorage or caching, comfortable project structure with defined components.
 
 # Exception handling
 
-FastAPI provides instrument to handle excpetions. It is usefull when 
+FastAPI provides instrument to handle excpetions. It works as middleware which catches all exceptions from router functions and processes them. You can create own exception and catch it in the function:
+```python
+# app/utils/exceptions.py
+class TokenException(Exception):
+    def __init__(self, name):
+        self.is_api = "api" in name
+        self.name = f"you have not token to pass the page: {name}"
+``` 
+
+```python
+# app/main.py
+@app.exception_handler(TokenException) # you should use this decorator to cathc exceptions
+async def handle_token_issue(request: Request, exc: TokenException):
+    # you can raise another exception or return specific response
+    if exc.is_api:
+        raise HTTPException(403, "you should auth to use api")
+
+    response = RedirectResponse("/auth")
+    response.delete_cookie("token")
+    
+    return response
+```
+
+You can use defined excpetions and catch several variations. It will help you split logic for routing and error handling that increase code clearness.
 
 # CRUD
 
+CRUD (create, read, update, delete) is basic data handling operations in the system. To split logic between data managing and routing in our example we have separated routers and database operations.
+
+To use MongoDB we should initilize client instance which is responsible for MongoDB connection and database instance which is responsible for database managment operations:
+```python
+# app/database/__init__.py
+from typing import Any
+import os
+
+# if we want to use async mode we should call AsyncMongoClient
+# instead of MongoClient
+from pymongo import AsyncMongoClient
+
+client = AsyncMongoClient(os.getenv("MONGO_URI"))
+mongodb = client[os.getenv("MONGO_DB")]
+```
+
+To send database requests we can use `mongodb` variable. It works next way: `mongodb.<collection_name>.<operation_method>`. To make code clearlier we should split CRUD functions between files by collections. Now we can write functions:
+```python
+# app/database/users.py
+import bson
+from typing import Literal, Any
+from pymongo import UpdateOne
+
+# import from __init__.py necessary objects and functions
+# filter_options remove None values and returns ~clear~ dictionary
+from database import mongodb, filter_options
+
+# we should define function with verb what we will do with object and noun
+async def get_user(
+    # define every arguments for filtering
+    user_id: bson.ObjectId = None,
+    email: str = None,
+    username: str = None,
+    friend_id: bson.ObjectId = None,
+    friend_email: str = None,
+    fields = {"password": 0, "salt": 0},
+    *args, **kwargs # if we get any additional field, which we do not use
+):
+    # find_one recives filetr options and fields which we need to get
+    return await mongodb.users.find_one(
+        filter_options({
+            "_id": user_id,
+            "username": username,
+            "email": email,
+            "friends._id": friend_id,
+            "friends.email": friend_email,
+        }), 
+        fields
+    )
+
+
+async def get_user_list(
+    ids: list[bson.ObjectId] = None,
+    usernames: list[bson.ObjectId] = None,
+    emails: list[bson.ObjectId] = None,
+    sort: Literal[-1, 1] = 1,
+    sort_by: str = "_id",
+    skip: int = 0,
+    limit: int = None,
+    is_or: bool = False,
+    fields={},
+    *args, **kwargs
+):
+    # build specific filter options
+    filtered_options = filter_options({
+        "_id": {"$in": ids} if ids else None,
+        "username": {"$in": usernames} if usernames else None,
+        "email": {"$in": emails} if emails else None,
+    })
+
+    if is_or:
+        filtered_options = {
+            "$or": [{k: v} for k, v in filtered_options.items()]
+        }
+
+    # beacause find returns async cursor and point at defined document
+    # we can use process methods such as sort, skip, limit etc.
+    # also these methods returns another cursor on filtered documents.
+    # you can parse them with "async for" which gives you element by one
+    # and can save RAM or load them all and convert to list with method to_list.
+    # in this case you may not use limit
+    return await mongodb.users.find(
+        filtered_options,
+        {"password": 0, "salt": 0} | fields
+    ).sort(sort_by, sort).skip(skip).to_list(limit)
+
+
+async def insert_user(
+    email: str,
+    username: str,
+    photo: str,
+    salt: str,
+    password: str,
+    status: Literal["user", "admin"] = "user",
+    *args, **kwargs
+):
+    # it returns InsertResultOne with insertion status and document ObjectId.
+    # you should convert values into dictionary.
+    # "insert_many" returns InsertResultMany with similar result but instead of
+    # ObjectId or None it gives ObjectId list 
+    return await mongodb.users.insert_one({
+        "email": email,
+        "username": username,
+        "photo": photo,
+        "salt": salt,
+        "password": password,
+        "status": status,
+        "friends": []
+    })
+
+
+async def update_user(
+    user_id: bson.ObjectId,
+    email: str = None,
+    password: str = None,
+    photo: str = None,
+    status: Literal["user", "admin"] = None,
+    *args, **kwargs
+):
+    # for update operation you should firstly set filter dictionary
+    # and then define update method with new fields.
+    # it returns UpdateResult with status (how much was modified etc.) 
+    # and upserted_ids if you set True for upsertion operation
+    # (inserts document if not found existed).
+    return await mongodb.users.update_one(
+        {"_id": user_id},
+        {"$set": filter_options({
+            "email": email,
+            "password": password,
+            "photo": photo,
+            "status": status
+        })}
+    )
+
+
+async def add_friends_to_users(user1: dict[str, Any], user2: dict[str, Any]):
+    # we can use method bulk_write for several insertion, updating, deletion
+    # operations in one request. it returns BulkWriteResult
+    return await mongodb.users.bulk_write([
+        UpdateOne({"_id": user1["_id"]}, {"$push": {"friends": user2}}),
+        UpdateOne({"_id": user2["_id"]}, {"$push": {"friends": user1}}),
+    ])
+
+
+async def remove_friends_from_user(
+    user1_id: bson.ObjectId, 
+    user2_id: bson.ObjectId
+):
+    return await mongodb.users.bulk_write([
+        UpdateOne({"_id": user1_id}, {"$pull": {"friends": {"_id": user2_id}}}),
+        UpdateOne({"_id": user2_id}, {"$pull": {"friends": {"_id": user1_id}}})
+    ])
+
+
+async def delete_user(user_id: bson.ObjectId):
+    # to delete_one and delete_many delete documents and returns DeleteResult.
+    # it recieves only filter options
+    return await mongodb.users.delete_one({"_id": user_id})
+```
+
+More infromation about bulk_write you can find [there](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/crud/bulk-write/)
+
+If we want to find document and [update](https://www.geeksforgeeks.org/python/python-mongodb-find_one_and_update-query/), [replace](https://www.geeksforgeeks.org/python/python-mongodb-find_one_and_replace-query/) or [delete](https://www.geeksforgeeks.org/python/python-mongoddb-find_one_and_delete-query/), we should use `find_one_<operation_name>` method. How we use one in example:
+
+```python
+# app/database/requests.py
+async def find_and_delete_request(
+    request_id: bson.ObjectId,
+    reciever_id: bson.ObjectId,
+    *args, **kwargs
+):
+    # it returns dictionary or None and do operation. For update 
+    return await mongodb.requests.find_one_and_delete(
+        {"_id": request_id, "to._id": reciever_id}
+    )
+```
+
+Now you can use defined functions in handlers:
+
+```python
+# app/handlers/days.py
+@days_router.post("/")
+async def add_day(
+    day: DayModel,
+    user_cache: Annotated[dict[str, Any], Depends(is_authed)]
+):
+    # database.users.get_user
+    user = await mongo_get_user(bson.ObjectId(user_cache["user_id"]))
+
+    # database.days.insert_day
+    res = await mongo_insert_day(
+        user_id=user["_id"],
+        username=user["username"],
+        email=user["email"],
+        user_photo=user["photo"],
+        **day.model_dump(by_alias=True, exclude_none=True) # used alias and returns values without None
+    )
+
+    day_id = res.inserted_id
+    if not day_id:
+        raise HTTPException(400, "cannot insert day")
+
+    return JSONResponse({"detail": "day was inserted", "day_id": str(day_id)})
+```
+
+Also it is possible to use SQLAlchemy ([sync](https://fastapi.tiangolo.com/tutorial/sql-databases/) and [async](https://medium.com/@tclaitken/setting-up-a-fastapi-app-with-async-sqlalchemy-2-0-pydantic-v2-e6c540be4308)) and another SQL drivers or databases. Belowe are information about using Redis, where you can see, how you can handle it with FastAPI. 
+
 # Caching
+
+FastAPI does not have bult-in caching or cookie/session managment tools that is why you can find third-party library or provide caching yourself. The most popular and effectibvly solution for caching is Redis. We can use it a similar way as MongoDB.
+
+```python
+# app/cache/crur.py
+from redis.asyncio import Redis
+
+import os
+
+# it is better to use ConnetionPool 
+r = Redis(
+    host=os.getenv("REDIS_HOST"),
+    port=int(os.getenv("REDIS_PORT")),
+    db=os.getenv("REDIS_DB"),
+    decode_responses=True # if we want to get converted into object
+)
+
+
+async def cache_user(
+    ip: str, 
+    user_id: str, 
+    token: str, 
+    status: str,
+    token_live = 2592000 # 30 days 60 * 60 * 24 * 30
+):
+    # we can set json-like objects in redis.
+    # it automatically parse it for defined value to save
+    await r.json().set(token, ".", {
+        "ip": ip,
+        "user_id": user_id,
+        "status": status,
+    })
+    await r.expire(token, token_live) # set expire time on token
+
+
+async def get_user_from_cache(token: str):
+    return await r.json().get(token)
+
+
+async def delete_user_cache(token: str):
+    await r.json().delete(token)
+```
+
+And now we can use it in dependencies to check user authorization:
+
+```python
+async def is_authed(request: Request):
+    if not (token := request.cookies.get("token")):
+        raise TokenException(request.url.path)
+    
+    # there we try to get user values from cache
+    if not (values := await get_user_from_cache(token)):
+        raise TokenException(request.url.path)
+
+    if values["status"] not in ["admin", "user", "client"]:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"you have not access there without any status")
+    
+    return values | {"token": token}
+```
+
+# Background tasks
+
+FastAPI provides possibility to use background tasks for long-time operations such as email notifications (user loged in application from another device) or third-party API sending (you should check if user have signed in defined application). In these case you can just set some action and send response user with status "action is processing" and with websocket send response if it was successfull. How it looks:
+
+```python
+import asyncio
+from pydantic import BaseModel
+
+from fastapi import FastAPI, BackgroundTasks, 
+
+lock = asyncio.Lock()
+users_processed = []
+
+
+class User(BaseModel):
+    user_id: str
+    message: str
+
+
+async def pseudo_request_to_another_api(user: User):
+    await asyncio.sleep(5)
+    # do not use such method!!!
+
+    async with lock:
+        users_processed.append(user.model_dump())
+
+
+app = FastAPI()
+
+
+@app.websocket("/get_processed_users")
+async def broadcast_processed_users(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        await asyncio.sleep(10)
+        async with lock:
+            await websocket.send_text(str(users_processed))
+
+
+@app.post("/send_to_another_api_smth")
+asycn def send_to_another_api_smth(
+    background_tasks: BackgroundTasks
+    user: User
+):
+    background_tasks.add_task(pseudo_request_to_another_api, user)
+    return {"status": "success"}
+```
+
+If you have small app for small user amount this approach is the best but if you have more complicated functionality (image processing, file sending, data predicting etc.) it is better to use Celery. Also you can use SocketIO instead of provided library from FastAPI because it has more comfortable communication processing between client and server based on events and it has splitted user and room communication (send every user, which is connected to websocket, send only defined gorup, send only user)
+
+# Celery
+
+Celery is framework for distributed data processing. It provides Pub/Sub pattern for processing heavy tasks and task scheduling. In our example we use it to delete orphaned records (days and friends) and data updation in different collections. Celery does not support async processing that is why you should not use asynchronous clauses or you can work with them using `async_to_sync` from `asgiref` package. 
+
+For our example i have rewritten CRUD operations due to specific tasks:
+
+```python
+# workres/crud.py
+from datetime import datetime, timedelta
+from pymongo import MongoClient, UpdateOne, UpdateMany
+import os
+
+client = None
+db = None
+
+# we should use this construction due to connection issue possibility beacaouse
+# celery works in different processes/containers/machines
+def init_db():
+    global client, db
+
+    if not client:
+        client = MongoClient(os.getenv("MONGO_URI"))
+        db = client[os.getenv("MONGO_DB")]
+
+... # another crud functions
+
+# an example of using lookup and data updating
+def update_user_references():
+    init_db()
+    friend_batches = []
+    request_batches = []
+    day_batches = []
+
+    max_del = int(os.getenv("MAX_DEL", 20))
+    i = 0
+    for res in db.users.find({}, {"email": 1, "username": 1, "photo": 1}):
+        friend_batches.append(UpdateMany(
+            {"friends._id": res["_id"]},
+            {"$set": {
+                "friends.$.email": res["email"],
+                "friends.$.username": res["username"],
+                "friends.$.photo": res["photo"],
+            }}
+        ))
+        request_batches.append(UpdateMany(
+            {"from_user._id": res["_id"]},
+            {"$set": {
+                "from_user.email": res["email"],
+                "from_user.username": res["username"],
+                "from_user.photo": res["photo"],
+            }}
+        ))
+        day_batches.append(UpdateMany(
+            {"user._id": res["_id"]},
+            {"$set": { 
+                "user.email": res["email"],
+                "user.username": res["username"],
+                "user.photo": res["photo"],
+            }}
+        ))
+
+        if i and i % (max_del - 1) == 0:
+            db.users.bulk_write(friend_batches)
+            db.requests.bulk_write(request_batches)
+            db.days.bulk_write(day_batches)
+
+            friend_batches = []            
+            request_batches = []
+            day_batches = []
+
+        i += 1
+
+    if friend_batches:
+        db.users.bulk_write(friend_batches)
+        db.requests.bulk_write(request_batches)
+        db.days.bulk_write(day_batches)
+
+... # another crud functions
+```
+
+Now we can schedule our tasks:
+
+```python
+import dotenv
+import logging
+import os
+
+if not os.getenv("REDIS_URI"):
+    dotenv.load_dotenv()
+
+from celery import Celery
+from celery.signals import worker_process_init
+
+import crud
+
+# set up broker (we can use Redis)
+app = Celery(
+    "worker",
+    broker=os.getenv("REDIS_URI"),
+    backend=os.getenv("REDIS_URI")
+)
+
+# when worker starts
+@worker_process_init.connect
+def configure_workers(*args, **kwargs):
+    crud.init_db()
+
+@app.on_after_configure.connect
+def setup_periodic_tasks(sender: Celery, **kwargs):
+    ... # adding another periodic tasks
+    sender.add_periodic_task(
+        int(os.getenv("EXP_TIME", 60*60*12)), # define time where we should update
+        update_user_references.s(),
+        name="update user references"
+    )
+
+... # another task initializations
+
+@app.task
+def update_user_references():
+    logging.info("update_user_references started")
+    crud.update_user_references()
+    logging.info("update_user_references finished")
+```
+
+We can start it with followind commands:
+- `celery -A worker.app worker --loglevel=info` - starts workers (you should start it first)
+- `celery -A worker.app beat --loglevel=info` - starts scheduler
+
+If we have used celery in main app, it would look like:
+
+```python
+# celery file worker.py
+import logging
+import time
+
+from celery import Celery
+
+app = Celery(
+    "worker",
+    broker=os.getenv("REDIS_URI"),
+    backend=os.getenv("REDIS_URI")
+)
+
+@app.task
+def work_with_hard_task(task_id):
+    logging.info(f"Hard task started: {task_id}")
+    time.sleep(10)
+    logging.info(f"Hard task ended: {task_id}")
+```
+
+```python
+# fastapi file main.py
+from fastapi import FastAPI
+
+import worker
+
+app = FastAPI()
+
+@app.post("/start_hard_task/{task_id}")
+async def start_hard_task(task_id: str):
+    worker.work_with_hard_task(task_id)
+    return {"status": "Hard task started"}
+```
+
+In this case you should:
+- `celery -A worker app --loglevel=info` - start worker (you should start it first)
+- `uvicorn main:app --host 127.0.0.1 --port 8080` - start fastapi
+
+Without starting celery your tasks will not start working and ocures exception
 
 # How to start
 
-## Venv
+After lot of examples we can try start our application. There ware several ways to start/deploy it: manully or with docker. We try two ways. 
+
+## Manually
+
+First of all you should install [Python](https://www.python.org/downloads/), [MongoDB](https://www.mongodb.com/docs/manual/installation/) and [Redis](https://redis.io/docs/latest/operate/oss_and_stack/install/archive/install-redis/). Then you can change values of envirement variables such as EXP_TIME, FILE_SIZE etc. (if you already have installed MongoDB and Redis you should check their connection URLs) in `example.env` files and rename them to `.env`.
+
+To configure virtual envirement and install libraries you should:
+1) Open terminal and navigate to project directory: `cd <project_dir>`
+2) Write following script `python3 -m venv .` and wait until it have not done
+3) Then write `source bin/activate` (Linux/Mac) or `.\Scripts\activate` (Windows) to connect to loacl envirement
+4) Enter and start `pip3 install -r requirements.txt`
+
+Now you should split terminal on three windows and activate in every virtual enviroment:
+- in first window locate to `app` folder and write `hypercorn main:app --bind 127.0.0.1:8080 --certfile=certificates/cert.pem --keyfile=certificates/key.pem` (it starts FastAPI app)
+- in the second window enter `celery -A worker.app worker --loglevel=info` (it starts Celery worker)
+- in the third run `celery -A worker.app beat --loglevel=info` (it starts Celery scheduler)
+
+If you want stop them just close terminals or type in every `Ctrl+C` inreverse.
 
 ## Docker
 
-# What were not included in example
+# What were not included in the example

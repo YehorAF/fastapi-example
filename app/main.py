@@ -25,7 +25,10 @@ async def handle_token_issue(request: Request, exc: TokenException):
     if exc.is_api:
         raise HTTPException(403, "you should auth to use api")
 
-    return RedirectResponse("/auth")
+    response = RedirectResponse("/auth")
+    response.delete_cookie("token")
+    
+    return response
 
 
 @app.get("/public/{dir}/{dir_id}/{filename}", response_class=StreamingResponse)
